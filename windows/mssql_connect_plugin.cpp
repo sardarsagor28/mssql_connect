@@ -4,8 +4,12 @@
 #include <flutter/standard_method_codec.h>
 #include <memory>
 #include <sstream>
+#include <vector>
 #include <string>
 #include <unordered_map>
+#include <windows.h>
+#include <sql.h>
+#include <sqlext.h>
 
 namespace mssql_connect {
 
@@ -133,20 +137,66 @@ void MssqlConnectPlugin::Connect(
   std::string username = GetStringFromMap(args, "username");
   std::string password = GetStringFromMap(args, "password");
 
-  // Here you would implement the actual SQL Server connection logic
-  // For now, we'll just simulate a successful connection
-  int connection_id = ++next_connection_id_;
-  
-  // In a real implementation, you would store the actual connection object
-  connections_[connection_id] = nullptr; // Placeholder for actual connection
-  
-  flutter::EncodableMap response;
-  response[flutter::EncodableValue("connectionId")] = flutter::EncodableValue(connection_id);
-  response[flutter::EncodableValue("success")] = flutter::EncodableValue(true);
-  
-  result->Success(flutter::EncodableValue(response));
-}
+  SQLHENV hEnv = SQL_NULL_HENV;
+  SQLHDBC hDbc = SQL_NULL_HDBC;
+  SQLRETURN ret;
 
+  ret = SQLAllocHandle(SQL_HANDLE_ENV, SQL_NULL_HANDLE, &hEnv);
+  if (!SQL_SUCCEEDED(ret)) {
+      result->Error("ConnectionError", "Failed to allocate environment handle");
+      return;
+  }
+
+  ret = SQLSetEnvAttr(hEnv, SQL_ATTR_ODBC_VERSION, (SQLPOINTER)SQL_OV_ODBC3, 0);
+  if (!SQL_SUCCEEDED(ret)) {
+      SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
+      result->Error("ConnectionError", "Failed to set ODBC version");
+      return;
+  }
+
+  ret = SQLAllocHandle(SQL_HANDLE_DBC, hEnv, &hDbc);
+  if (!SQL_SUCCEEDED(ret)) {
+      SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
+      result->Error("ConnectionError", "Failed to allocate connection handle");
+      return;
+  }
+
+  std::wstringstream conn_str_ss;
+  conn_str_ss << L"DRIVER={ODBC Driver 18 for SQL Server};SERVER=" << StringToWString(server)
+              << L";DATABASE=" << StringToWString(database)
+              << L";UID=" << StringToWString(username)
+              << L";PWD=" << StringToWString(password)
+              << L";TrustServerCertificate=Yes;";
+  std::wstring conn_str = conn_str_ss.str();
+
+  wchar_t out_conn_str[1024];
+  SQLSMALLINT out_conn_str_len;
+
+  ret = SQLDriverConnect(hDbc, NULL, (SQLWCHAR*)conn_str.c_str(), SQL_NTS,
+                         out_conn_str, sizeof(out_conn_str) / sizeof(wchar_t),
+                         &out_conn_str_len, SQL_DRIVER_NOPROMPT);
+
+  if (SQL_SUCCEEDED(ret)) {
+      int connection_id = ++next_connection_id_;
+      connections_[connection_id] = hDbc;
+
+      flutter::EncodableMap response;
+      response[flutter::EncodableValue("connectionId")] = flutter::EncodableValue(connection_id);
+      response[flutter::EncodableValue("success")] = flutter::EncodableValue(true);
+      result->Success(flutter::EncodableValue(response));
+  } else {
+      SQLWCHAR sqlstate[6];
+      SQLINTEGER native_error;
+      SQLWCHAR message_text[SQL_MAX_MESSAGE_LENGTH];
+      SQLSMALLINT text_length;
+      SQLGetDiagRec(SQL_HANDLE_DBC, hDbc, 1, sqlstate, &native_error, message_text, SQL_MAX_MESSAGE_LENGTH, &text_length);
+      std::string error_message = WStringToString(message_text);
+
+      SQLFreeHandle(SQL_HANDLE_DBC, hDbc);
+      SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
+      result->Error("ConnectionError", "Failed to connect to database", flutter::EncodableValue(error_message));
+  }
+}
 // Disconnect method implementation
 void MssqlConnectPlugin::Disconnect(
     const flutter::MethodCall<flutter::EncodableValue>& method_call,
@@ -165,13 +215,15 @@ void MssqlConnectPlugin::Disconnect(
     return;
   }
 
-  // Here you would implement the actual disconnection logic
+  SQLHDBC hDbc = (SQLHDBC)connections_[connectionId];
+  SQLDisconnect(hDbc);
+  SQLFreeHandle(SQL_HANDLE_DBC, hDbc);
+
   connections_.erase(connectionId);
   
   flutter::EncodableMap response;
   response[flutter::EncodableValue("success")] = flutter::EncodableValue(true);
-  
-  result->Success(flutter::EncodableValue(response));
+  result->Success(flutter::EncodableValue(true));
 }
 
 // Query method implementation
@@ -198,20 +250,67 @@ void MssqlConnectPlugin::Query(
     return;
   }
 
-  // Here you would implement the actual query execution logic
-  // For now, we'll return mock data
-  
-  flutter::EncodableMap response;
-  response[flutter::EncodableValue("success")] = flutter::EncodableValue(true);
-  response[flutter::EncodableValue("rowCount")] = flutter::EncodableValue(0);
-  
-  flutter::EncodableList rows;
-  response[flutter::EncodableValue("rows")] = rows;
-  
-  flutter::EncodableList columnNames;
-  response[flutter::EncodableValue("columnNames")] = columnNames;
-  
-  result->Success(flutter::EncodableValue(response));
+  SQLHDBC hDbc = (SQLHDBC)connections_[connectionId];
+  SQLHSTMT hStmt = SQL_NULL_HSTMT;
+  SQLRETURN ret;
+
+  ret = SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt);
+  if (!SQL_SUCCEEDED(ret)) {
+      result->Error("QueryError", "Failed to allocate statement handle");
+      return;
+  }
+
+  std::wstring wsql = StringToWString(sql);
+  ret = SQLExecDirect(hStmt, (SQLWCHAR*)wsql.c_str(), SQL_NTS);
+
+  if (SQL_SUCCEEDED(ret)) {
+      SQLSMALLINT num_cols;
+      SQLNumResultCols(hStmt, &num_cols);
+
+      flutter::EncodableList columnNames;
+      std::vector<SQLWCHAR> col_name_buffer(256);
+      for (SQLSMALLINT i = 1; i <= num_cols; ++i) {
+          SQLDescribeCol(hStmt, i, col_name_buffer.data(), (SQLSMALLINT)col_name_buffer.size(), NULL, NULL, NULL, NULL, NULL);
+          columnNames.push_back(flutter::EncodableValue(WStringToString(col_name_buffer.data())));
+      }
+
+      flutter::EncodableList rows;
+      SQLLEN row_count = 0;
+      while (SQL_SUCCEEDED(SQLFetch(hStmt))) {
+          row_count++;
+          flutter::EncodableMap row;
+          for (SQLSMALLINT i = 1; i <= num_cols; ++i) {
+              SQLWCHAR data[1024];
+              SQLLEN indicator;
+              ret = SQLGetData(hStmt, i, SQL_C_WCHAR, data, sizeof(data), &indicator);
+              if (SQL_SUCCEEDED(ret)) {
+                  if (indicator == SQL_NULL_DATA) {
+                      row[columnNames[i - 1]] = flutter::EncodableValue();
+                  } else {
+                      row[columnNames[i - 1]] = flutter::EncodableValue(WStringToString(data));
+                  }
+              }
+          }
+          rows.push_back(flutter::EncodableValue(row));
+      }
+
+      flutter::EncodableMap response;
+      response[flutter::EncodableValue("rows")] = rows;
+      response[flutter::EncodableValue("rowCount")] = (int)row_count;
+      response[flutter::EncodableValue("columns")] = columnNames;
+
+      result->Success(flutter::EncodableValue(response));
+  } else {
+      SQLWCHAR sqlstate[6];
+      SQLINTEGER native_error;
+      SQLWCHAR message_text[SQL_MAX_MESSAGE_LENGTH];
+      SQLSMALLINT text_length;
+      SQLGetDiagRec(SQL_HANDLE_STMT, hStmt, 1, sqlstate, &native_error, message_text, SQL_MAX_MESSAGE_LENGTH, &text_length);
+      std::string error_message = WStringToString(message_text);
+      result->Error("QueryError", "Query execution failed", flutter::EncodableValue(error_message));
+  }
+
+  SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
 }
 
 // Execute method implementation
@@ -238,14 +337,28 @@ void MssqlConnectPlugin::Execute(
     return;
   }
 
-  // Here you would implement the actual command execution logic
-  // For now, we'll return mock data
-  
-  flutter::EncodableMap response;
-  response[flutter::EncodableValue("success")] = flutter::EncodableValue(true);
-  response[flutter::EncodableValue("affectedRows")] = flutter::EncodableValue(0);
-  
-  result->Success(flutter::EncodableValue(response));
+  SQLHDBC hDbc = (SQLHDBC)connections_[connectionId];
+  SQLHSTMT hStmt = SQL_NULL_HSTMT;
+  SQLRETURN ret;
+
+  ret = SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt);
+  if (!SQL_SUCCEEDED(ret)) {
+      result->Error("ExecuteError", "Failed to allocate statement handle");
+      return;
+  }
+
+  std::wstring wsql = StringToWString(sql);
+  ret = SQLExecDirect(hStmt, (SQLWCHAR*)wsql.c_str(), SQL_NTS);
+
+  if (SQL_SUCCEEDED(ret)) {
+      SQLLEN affected_rows;
+      SQLRowCount(hStmt, &affected_rows);
+      result->Success(flutter::EncodableValue((int)affected_rows));
+  } else {
+      result->Error("ExecuteError", "Command execution failed");
+  }
+
+  SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
 }
 
 // Test connection method implementation
@@ -265,10 +378,54 @@ void MssqlConnectPlugin::TestConnection(
   std::string username = GetStringFromMap(args, "username");
   std::string password = GetStringFromMap(args, "password");
 
-  // Here you would implement the actual connection test logic
-  // For now, we'll just simulate a successful test
-  
-  result->Success(flutter::EncodableValue(true));
+  SQLHENV hEnv = SQL_NULL_HENV;
+  SQLHDBC hDbc = SQL_NULL_HDBC;
+  SQLRETURN ret;
+
+  ret = SQLAllocHandle(SQL_HANDLE_ENV, SQL_NULL_HANDLE, &hEnv);
+  if (!SQL_SUCCEEDED(ret)) {
+      result->Success(flutter::EncodableValue(false));
+      return;
+  }
+
+  ret = SQLSetEnvAttr(hEnv, SQL_ATTR_ODBC_VERSION, (SQLPOINTER)SQL_OV_ODBC3, 0);
+  if (!SQL_SUCCEEDED(ret)) {
+      SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
+      result->Success(flutter::EncodableValue(false));
+      return;
+  }
+
+  ret = SQLAllocHandle(SQL_HANDLE_DBC, hEnv, &hDbc);
+  if (!SQL_SUCCEEDED(ret)) {
+      SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
+      result->Success(flutter::EncodableValue(false));
+      return;
+  }
+
+  std::wstringstream conn_str_ss;
+  conn_str_ss << L"DRIVER={ODBC Driver 18 for SQL Server};SERVER=" << StringToWString(server)
+              << L";DATABASE=" << StringToWString(database)
+              << L";UID=" << StringToWString(username)
+              << L";PWD=" << StringToWString(password)
+              << L";TrustServerCertificate=Yes;";
+  std::wstring conn_str = conn_str_ss.str();
+
+  ret = SQLDriverConnect(hDbc, NULL, (SQLWCHAR*)conn_str.c_str(), SQL_NTS, NULL, 0, NULL, SQL_DRIVER_NOPROMPT);
+
+  if (SQL_SUCCEEDED(ret)) {
+      SQLDisconnect(hDbc);
+      SQLFreeHandle(SQL_HANDLE_DBC, hDbc);
+      SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
+      result->Success(flutter::EncodableValue(true));
+  } else {
+      SQLWCHAR sqlstate[6];
+      SQLINTEGER native_error;
+      SQLWCHAR message_text[SQL_MAX_MESSAGE_LENGTH];
+      SQLSMALLINT text_length;
+      SQLGetDiagRec(SQL_HANDLE_DBC, hDbc, 1, sqlstate, &native_error, message_text, SQL_MAX_MESSAGE_LENGTH, &text_length);
+      std::string error_message = WStringToString(message_text);
+      result->Error("ConnectionError", "Connection test failed", flutter::EncodableValue(error_message));
+  }
 }
 
 }  // namespace mssql_connect

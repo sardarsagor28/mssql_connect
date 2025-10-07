@@ -154,7 +154,10 @@ class MsSqlConnection {
 
       return result == true;
     } on PlatformException catch (e) {
-      throw ConnectionException('Connection test failed', details: e.message);
+      throw ConnectionException(
+        'Connection test failed',
+        details: e.details as String?,
+      );
     }
   }
 

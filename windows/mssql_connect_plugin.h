@@ -5,6 +5,9 @@
 #include <flutter/plugin_registrar_windows.h>
 #include <flutter/standard_method_codec.h>
 #include <flutter/encodable_value.h>
+#include <windows.h>
+#include <sql.h>
+#include <sqlext.h>
 
 #include <memory>
 #include <string>

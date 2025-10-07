@@ -1,3 +1,5 @@
+import 'dart:developer';
+
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:mssql_connect/mssql_connect.dart';
@@ -88,15 +90,19 @@ class _HomePageState extends State<HomePage> {
         );
       }
     } catch (e) {
+      final errorMessage = e is DatabaseException
+          ? e.details ?? e.message
+          : e.toString();
+      log('✗ Error: $errorMessage');
       setState(() {
-        _statusMessage = '✗ Error: ${e.toString()}';
+        _statusMessage = '✗ Error: $errorMessage';
         _isLoading = false;
       });
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Connection test failed: $e'),
+            content: Text('Connection test failed: $errorMessage'),
             backgroundColor: Colors.red,
           ),
         );
