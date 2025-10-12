@@ -46,6 +46,29 @@ class _HomePageState extends State<HomePage> {
   List<Map<String, dynamic>> _queryResults = [];
   List<String> _columnNames = [];
 
+  String _platformVersion = 'Unknown';
+
+  @override
+  void initState() {
+    super.initState();
+    _getPlatformVersion();
+  }
+
+  Future<void> _getPlatformVersion() async {
+    String platformVersion;
+    try {
+      platformVersion = await MssqlConnect().getPlatformVersion() ?? 'Unknown platform version';
+    } catch (e) {
+      platformVersion = 'Failed to get platform version.';
+    }
+
+    if (!mounted) return;
+
+    setState(() {
+      _platformVersion = platformVersion;
+    });
+  }
+
   @override
   void dispose() {
     _serverController.dispose();
@@ -413,29 +436,35 @@ class _HomePageState extends State<HomePage> {
               color: _isConnected ? Colors.green[50] : Colors.grey[100],
               child: Padding(
                 padding: const EdgeInsets.all(16.0),
-                child: Row(
+                child: Column(
                   children: [
-                    Icon(
-                      _isConnected ? Icons.check_circle : Icons.info_outline,
-                      color: _isConnected ? Colors.green : Colors.grey,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        _statusMessage,
-                        style: TextStyle(
-                          color: _isConnected
-                              ? Colors.green[900]
-                              : Colors.black87,
+                    Row(
+                      children: [
+                        Icon(
+                          _isConnected ? Icons.check_circle : Icons.info_outline,
+                          color: _isConnected ? Colors.green : Colors.grey,
                         ),
-                      ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            _statusMessage,
+                            style: TextStyle(
+                              color: _isConnected
+                                  ? Colors.green[900]
+                                  : Colors.black87,
+                            ),
+                          ),
+                        ),
+                        if (_isLoading)
+                          const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                      ],
                     ),
-                    if (_isLoading)
-                      const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
+                    const SizedBox(height: 10),
+                    Text('Platform Version: $_platformVersion'),
                   ],
                 ),
               ),

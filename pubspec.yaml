@@ -34,6 +34,18 @@ flutter:
   # adding or updating assets for this project.
   plugin:
     platforms:
+      android:
+        package: com.example.mssql_connect
+        pluginClass: MssqlConnectPlugin
+      ios:
+        pluginClass: MssqlConnectPlugin
+      linux:
+        pluginClass: MssqlConnectPlugin
+      macos:
+        pluginClass: MssqlConnectPlugin
+      web:
+        pluginClass: MssqlConnectWeb
+        fileName: mssql_connect_web.dart
       windows:
         pluginClass: MssqlConnectPluginCApi
 
