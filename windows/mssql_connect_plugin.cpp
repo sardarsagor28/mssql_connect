@@ -271,6 +271,12 @@ void MssqlConnectPlugin::Query(
       std::vector<SQLWCHAR> col_name_buffer(256);
       for (SQLSMALLINT i = 1; i <= num_cols; ++i) {
           SQLDescribeCol(hStmt, i, col_name_buffer.data(), (SQLSMALLINT)col_name_buffer.size(), NULL, NULL, NULL, NULL, NULL);
+          // If SQLDescribeCol fails, it might be a statement that doesn't produce a result set.
+          if (!SQL_SUCCEEDED(ret)) {
+              result->Error("QueryError", "The executed statement did not produce a result set. Use execute() for INSERT, UPDATE, DELETE.", nullptr);
+              SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
+              return;
+          }
           columnNames.push_back(flutter::EncodableValue(WStringToString(col_name_buffer.data())));
       }
 
@@ -351,11 +357,27 @@ void MssqlConnectPlugin::Execute(
   ret = SQLExecDirect(hStmt, (SQLWCHAR*)wsql.c_str(), SQL_NTS);
 
   if (SQL_SUCCEEDED(ret)) {
-      SQLLEN affected_rows;
-      SQLRowCount(hStmt, &affected_rows);
+      SQLLEN affected_rows = -1; // Default to -1 (not available)
+      ret = SQLRowCount(hStmt, &affected_rows);
+
+      if (!SQL_SUCCEEDED(ret)) {
+          // If SQLRowCount fails, we can't be sure of the number of affected rows.
+          // However, the command itself succeeded. We can return 0 or 1 based on the statement type,
+          // but returning the potentially negative value from SQLRowCount is also an option.
+          // For simplicity and to indicate success, we'll return 1 for INSERTs if rowcount is unavailable.
+          if (sql.rfind("INSERT", 0) == 0 || sql.rfind("insert", 0) == 0) {
+              affected_rows = 1; // Assume 1 row for a successful insert if count is not available
+          }
+      }
       result->Success(flutter::EncodableValue((int)affected_rows));
   } else {
-      result->Error("ExecuteError", "Command execution failed");
+      SQLWCHAR sqlstate[6];
+      SQLINTEGER native_error;
+      SQLWCHAR message_text[SQL_MAX_MESSAGE_LENGTH];
+      SQLSMALLINT text_length;
+      SQLGetDiagRec(SQL_HANDLE_STMT, hStmt, 1, sqlstate, &native_error, message_text, SQL_MAX_MESSAGE_LENGTH, &text_length);
+      std::string error_message = WStringToString(message_text);
+      result->Error("ExecuteError", "Command execution failed", flutter::EncodableValue(error_message));
   }
 
   SQLFreeHandle(SQL_HANDLE_STMT, hStmt);

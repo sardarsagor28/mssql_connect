@@ -53,7 +53,7 @@ class MsSqlConnection {
     } on PlatformException catch (e) {
       throw ConnectionException(
         'Failed to connect to database',
-        details: e.message,
+        details: e.details as String?,
       );
     }
   }
@@ -75,7 +75,7 @@ class MsSqlConnection {
 
       throw QueryException('Invalid query result format');
     } on PlatformException catch (e) {
-      throw QueryException('Query execution failed', details: e.message);
+      throw QueryException('Query execution failed', details: e.details as String?);
     }
   }
 
@@ -92,7 +92,7 @@ class MsSqlConnection {
 
       return result as int? ?? 0;
     } on PlatformException catch (e) {
-      throw QueryException('Execute command failed', details: e.message);
+      throw QueryException('Execute command failed', details: e.details as String?);
     }
   }
 
@@ -118,7 +118,7 @@ class MsSqlConnection {
     } on PlatformException catch (e) {
       throw QueryException(
         'Stored procedure execution failed',
-        details: e.message,
+        details: e.details as String?,
       );
     }
   }
@@ -136,7 +136,7 @@ class MsSqlConnection {
       _isConnected = false;
       _connectionId = null;
     } on PlatformException catch (e) {
-      throw ConnectionException('Failed to disconnect', details: e.message);
+      throw ConnectionException('Failed to disconnect', details: e.details as String?);
     }
   }
 
