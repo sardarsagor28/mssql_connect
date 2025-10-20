@@ -57,7 +57,9 @@ class _HomePageState extends State<HomePage> {
   Future<void> _getPlatformVersion() async {
     String platformVersion;
     try {
-      platformVersion = await MssqlConnect().getPlatformVersion() ?? 'Unknown platform version';
+      platformVersion =
+          await MssqlConnect().getPlatformVersion() ??
+          'Unknown platform version';
     } catch (e) {
       platformVersion = 'Failed to get platform version.';
     }
@@ -114,7 +116,7 @@ class _HomePageState extends State<HomePage> {
       }
     } catch (e) {
       final errorMessage = e is DatabaseException
-          ? e.details ?? e.message
+          ? 'DB Error: ${e.message}${e.details != null ? '\nDetails: ${e.details}' : ''}'
           : e.toString();
       log('✗ Error: $errorMessage');
       setState(() {
@@ -174,7 +176,9 @@ class _HomePageState extends State<HomePage> {
     } catch (e) {
       setState(() {
         _isConnected = false;
-        _statusMessage = '✗ Error: ${e.toString()}';
+        _statusMessage = e is DatabaseException
+            ? '✗ Error: ${e.message}${e.details != null ? '\nDetails: ${e.details}' : ''}'
+            : '✗ Error: ${e.toString()}';
         _isLoading = false;
       });
 
@@ -260,7 +264,9 @@ class _HomePageState extends State<HomePage> {
       }
     } catch (e) {
       setState(() {
-        _statusMessage = '✗ Query error: ${e.toString()}';
+        _statusMessage = e is DatabaseException
+            ? '✗ Query Error: ${e.message}${e.details != null ? '\nDetails: ${e.details}' : ''}'
+            : '✗ Query Error: ${e.toString()}';
         _isLoading = false;
         _queryResults = [];
         _columnNames = [];
@@ -274,6 +280,8 @@ class _HomePageState extends State<HomePage> {
           ),
         );
       }
+
+      log('✗ Error: $e');
     }
   }
 
@@ -311,7 +319,9 @@ class _HomePageState extends State<HomePage> {
       }
     } catch (e) {
       setState(() {
-        _statusMessage = '✗ Command error: ${e.toString()}';
+        _statusMessage = e is DatabaseException
+            ? '✗ Command Error: ${e.message}${e.details != null ? '\nDetails: ${e.details}' : ''}'
+            : '✗ Command Error: ${e.toString()}';
         _isLoading = false;
       });
 
@@ -323,6 +333,8 @@ class _HomePageState extends State<HomePage> {
           ),
         );
       }
+
+      log('✗ Error: $e');
     }
   }
 
@@ -441,7 +453,9 @@ class _HomePageState extends State<HomePage> {
                     Row(
                       children: [
                         Icon(
-                          _isConnected ? Icons.check_circle : Icons.info_outline,
+                          _isConnected
+                              ? Icons.check_circle
+                              : Icons.info_outline,
                           color: _isConnected ? Colors.green : Colors.grey,
                         ),
                         const SizedBox(width: 12),
@@ -489,7 +503,8 @@ class _HomePageState extends State<HomePage> {
                     TextField(
                       controller: _queryController,
                       decoration: const InputDecoration(
-                        labelText: 'SQL Command',
+                        labelText:
+                            'SQL Query (SELECT) or Command (INSERT/UPDATE/DELETE)',
                         border: OutlineInputBorder(),
                         prefixIcon: Icon(Icons.code),
                       ),
