@@ -185,12 +185,21 @@ void MssqlConnectPlugin::Connect(
       response[flutter::EncodableValue("success")] = flutter::EncodableValue(true);
       result->Success(flutter::EncodableValue(response));
   } else {
+      std::wstringstream wss;
+      SQLSMALLINT i = 1;
       SQLWCHAR sqlstate[6];
       SQLINTEGER native_error;
       SQLWCHAR message_text[SQL_MAX_MESSAGE_LENGTH];
       SQLSMALLINT text_length;
-      SQLGetDiagRec(SQL_HANDLE_DBC, hDbc, 1, sqlstate, &native_error, message_text, SQL_MAX_MESSAGE_LENGTH, &text_length);
-      std::string error_message = WStringToString(message_text);
+
+      while (SQLGetDiagRec(SQL_HANDLE_DBC, hDbc, i, sqlstate, &native_error, message_text, SQL_MAX_MESSAGE_LENGTH, &text_length) == SQL_SUCCESS) {
+          wss << L"Message " << i << L": " << message_text << L" (SQLSTATE: " << sqlstate << L", Native error: " << native_error << L")" << std::endl;
+          i++;
+      }
+      std::string error_message = WStringToString(wss.str());
+      if (error_message.empty()) {
+         error_message = "Failed to connect to database, but no diagnostic message was returned.";
+      }
 
       SQLFreeHandle(SQL_HANDLE_DBC, hDbc);
       SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
@@ -307,12 +316,21 @@ void MssqlConnectPlugin::Query(
 
       result->Success(flutter::EncodableValue(response));
   } else {
+      std::wstringstream wss;
+      SQLSMALLINT i = 1;
       SQLWCHAR sqlstate[6];
       SQLINTEGER native_error;
       SQLWCHAR message_text[SQL_MAX_MESSAGE_LENGTH];
       SQLSMALLINT text_length;
-      SQLGetDiagRec(SQL_HANDLE_STMT, hStmt, 1, sqlstate, &native_error, message_text, SQL_MAX_MESSAGE_LENGTH, &text_length);
-      std::string error_message = WStringToString(message_text);
+
+      while (SQLGetDiagRec(SQL_HANDLE_STMT, hStmt, i, sqlstate, &native_error, message_text, SQL_MAX_MESSAGE_LENGTH, &text_length) == SQL_SUCCESS) {
+          wss << L"Message " << i << L": " << message_text << L" (SQLSTATE: " << sqlstate << L", Native error: " << native_error << L")" << std::endl;
+          i++;
+      }
+      std::string error_message = WStringToString(wss.str());
+      if (error_message.empty()) {
+         error_message = "Query execution failed, but no diagnostic message was returned.";
+      }
       result->Error("QueryError", "Query execution failed", flutter::EncodableValue(error_message));
   }
 
@@ -371,12 +389,21 @@ void MssqlConnectPlugin::Execute(
       }
       result->Success(flutter::EncodableValue((int)affected_rows));
   } else {
+      std::wstringstream wss;
+      SQLSMALLINT i = 1;
       SQLWCHAR sqlstate[6];
       SQLINTEGER native_error;
       SQLWCHAR message_text[SQL_MAX_MESSAGE_LENGTH];
       SQLSMALLINT text_length;
-      SQLGetDiagRec(SQL_HANDLE_STMT, hStmt, 1, sqlstate, &native_error, message_text, SQL_MAX_MESSAGE_LENGTH, &text_length);
-      std::string error_message = WStringToString(message_text);
+
+      while (SQLGetDiagRec(SQL_HANDLE_STMT, hStmt, i, sqlstate, &native_error, message_text, SQL_MAX_MESSAGE_LENGTH, &text_length) == SQL_SUCCESS) {
+          wss << L"Message " << i << L": " << message_text << L" (SQLSTATE: " << sqlstate << L", Native error: " << native_error << L")" << std::endl;
+          i++;
+      }
+      std::string error_message = WStringToString(wss.str());
+      if (error_message.empty()) {
+         error_message = "Command execution failed, but no diagnostic message was returned.";
+      }
       result->Error("ExecuteError", "Command execution failed", flutter::EncodableValue(error_message));
   }
 
@@ -440,12 +467,21 @@ void MssqlConnectPlugin::TestConnection(
       SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
       result->Success(flutter::EncodableValue(true));
   } else {
+      std::wstringstream wss;
+      SQLSMALLINT i = 1;
       SQLWCHAR sqlstate[6];
       SQLINTEGER native_error;
       SQLWCHAR message_text[SQL_MAX_MESSAGE_LENGTH];
       SQLSMALLINT text_length;
-      SQLGetDiagRec(SQL_HANDLE_DBC, hDbc, 1, sqlstate, &native_error, message_text, SQL_MAX_MESSAGE_LENGTH, &text_length);
-      std::string error_message = WStringToString(message_text);
+
+      while (SQLGetDiagRec(SQL_HANDLE_DBC, hDbc, i, sqlstate, &native_error, message_text, SQL_MAX_MESSAGE_LENGTH, &text_length) == SQL_SUCCESS) {
+          wss << L"Message " << i << L": " << message_text << L" (SQLSTATE: " << sqlstate << L", Native error: " << native_error << L")" << std::endl;
+          i++;
+      }
+      std::string error_message = WStringToString(wss.str());
+      if (error_message.empty()) {
+         error_message = "Connection test failed, but no diagnostic message was returned.";
+      }
       result->Error("ConnectionError", "Connection test failed", flutter::EncodableValue(error_message));
   }
 }
