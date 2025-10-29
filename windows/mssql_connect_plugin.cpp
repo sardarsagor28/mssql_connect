@@ -291,19 +291,77 @@ void MssqlConnectPlugin::Query(
 
       flutter::EncodableList rows;
       SQLLEN row_count = 0;
+
+      std::vector<SQLSMALLINT> col_types(num_cols + 1);
+      for (SQLSMALLINT i = 1; i <= num_cols; ++i) {
+          SQLColAttribute(hStmt, i, SQL_DESC_TYPE, NULL, 0, NULL, (SQLLEN*)&col_types[i]);
+      }
+
       while (SQL_SUCCEEDED(SQLFetch(hStmt))) {
           row_count++;
           flutter::EncodableMap row;
           for (SQLSMALLINT i = 1; i <= num_cols; ++i) {
-              SQLWCHAR data[1024];
               SQLLEN indicator;
-              ret = SQLGetData(hStmt, i, SQL_C_WCHAR, data, sizeof(data), &indicator);
-              if (SQL_SUCCEEDED(ret)) {
-                  if (indicator == SQL_NULL_DATA) {
-                      row[columnNames[i - 1]] = flutter::EncodableValue();
-                  } else {
-                      row[columnNames[i - 1]] = flutter::EncodableValue(WStringToString(data));
+              flutter::EncodableValue value;
+
+              switch (col_types[i]) {
+                  case SQL_BIT: {
+                      char bit_val;
+                      ret = SQLGetData(hStmt, i, SQL_C_BIT, &bit_val, sizeof(bit_val), &indicator);
+                      if (SQL_SUCCEEDED(ret) && indicator != SQL_NULL_DATA) {
+                          value = flutter::EncodableValue(bit_val != 0);
+                      }
+                      break;
                   }
+                  case SQL_TINYINT:
+                  case SQL_SMALLINT:
+                  case SQL_INTEGER: {
+                      SQLINTEGER int_val;
+                      ret = SQLGetData(hStmt, i, SQL_C_SLONG, &int_val, sizeof(int_val), &indicator);
+                      if (SQL_SUCCEEDED(ret) && indicator != SQL_NULL_DATA) {
+                          value = flutter::EncodableValue(int_val);
+                      }
+                      break;
+                  }
+                  case SQL_BIGINT: {
+                      SQLBIGINT bigint_val;
+                      ret = SQLGetData(hStmt, i, SQL_C_SBIGINT, &bigint_val, sizeof(bigint_val), &indicator);
+                      if (SQL_SUCCEEDED(ret) && indicator != SQL_NULL_DATA) {
+                          value = flutter::EncodableValue(bigint_val);
+                      }
+                      break;
+                  }
+                  case SQL_REAL:
+                  case SQL_FLOAT:
+                  case SQL_DOUBLE:
+                  case SQL_DECIMAL:
+                  case SQL_NUMERIC: {
+                      double double_val;
+                      ret = SQLGetData(hStmt, i, SQL_C_DOUBLE, &double_val, sizeof(double_val), &indicator);
+                      if (SQL_SUCCEEDED(ret) && indicator != SQL_NULL_DATA) {
+                          value = flutter::EncodableValue(double_val);
+                      }
+                      break;
+                  }
+                  case SQL_CHAR:
+                  case SQL_VARCHAR:
+                  case SQL_WVARCHAR:
+                  case SQL_WCHAR:
+                  case SQL_WLONGVARCHAR:
+                  default: {
+                      SQLWCHAR data[4000];
+                      ret = SQLGetData(hStmt, i, SQL_C_WCHAR, data, sizeof(data), &indicator);
+                      if (SQL_SUCCEEDED(ret) && indicator != SQL_NULL_DATA) {
+                          value = flutter::EncodableValue(WStringToString(data));
+                      }
+                      break;
+                  }
+              }
+
+              if (indicator == SQL_NULL_DATA) {
+                  row[columnNames[i - 1]] = flutter::EncodableValue();
+              } else {
+                  row[columnNames[i - 1]] = value;
               }
           }
           rows.push_back(flutter::EncodableValue(row));
