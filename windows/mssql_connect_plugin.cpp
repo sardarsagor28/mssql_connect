@@ -239,160 +239,162 @@ void MssqlConnectPlugin::Disconnect(
 void MssqlConnectPlugin::Query(
     const flutter::MethodCall<flutter::EncodableValue>& method_call,
     std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
-    
-  if (!method_call.arguments() || !std::holds_alternative<flutter::EncodableMap>(*method_call.arguments())) {
-    result->Error("InvalidArguments", "Arguments must be a map");
-    return;
-  }
 
-  const flutter::EncodableMap& args = std::get<flutter::EncodableMap>(*method_call.arguments());
-  int connectionId = GetIntFromMap(args, "connectionId", -1);
-  std::string sql = GetStringFromMap(args, "sql");
+    if (!method_call.arguments() || !std::holds_alternative<flutter::EncodableMap>(*method_call.arguments())) {
+        result->Error("InvalidArguments", "Arguments must be a map");
+        return;
+    }
 
-  if (connectionId < 0 || connections_.find(connectionId) == connections_.end()) {
-    result->Error("InvalidConnection", "Invalid connection ID");
-    return;
-  }
+    const flutter::EncodableMap& args = std::get<flutter::EncodableMap>(*method_call.arguments());
+    int connectionId = GetIntFromMap(args, "connectionId", -1);
+    std::string sql = GetStringFromMap(args, "sql");
 
-  if (sql.empty()) {
-    result->Error("InvalidQuery", "SQL query cannot be empty");
-    return;
-  }
+    if (connectionId < 0 || connections_.find(connectionId) == connections_.end()) {
+        result->Error("InvalidConnection", "Invalid connection ID");
+        return;
+    }
 
-  SQLHDBC hDbc = (SQLHDBC)connections_[connectionId];
-  SQLHSTMT hStmt = SQL_NULL_HSTMT;
-  SQLRETURN ret;
+    if (sql.empty()) {
+        result->Error("InvalidQuery", "SQL query cannot be empty");
+        return;
+    }
 
-  ret = SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt);
-  if (!SQL_SUCCEEDED(ret)) {
-      result->Error("QueryError", "Failed to allocate statement handle");
-      return;
-  }
+    SQLHDBC hDbc = (SQLHDBC)connections_[connectionId];
+    SQLHSTMT hStmt = SQL_NULL_HSTMT;
+    SQLRETURN ret;
 
-  std::wstring wsql = StringToWString(sql);
-  ret = SQLExecDirect(hStmt, (SQLWCHAR*)wsql.c_str(), SQL_NTS);
+    ret = SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt);
+    if (!SQL_SUCCEEDED(ret)) {
+        result->Error("QueryError", "Failed to allocate statement handle");
+        return;
+    }
 
-  if (SQL_SUCCEEDED(ret)) {
-      SQLSMALLINT num_cols;
-      SQLNumResultCols(hStmt, &num_cols);
+    std::wstring wsql = StringToWString(sql);
+    ret = SQLExecDirect(hStmt, (SQLWCHAR*)wsql.c_str(), SQL_NTS);
 
-      flutter::EncodableList columnNames;
-      std::vector<SQLWCHAR> col_name_buffer(256);
-      for (SQLSMALLINT i = 1; i <= num_cols; ++i) {
-          SQLDescribeCol(hStmt, i, col_name_buffer.data(), (SQLSMALLINT)col_name_buffer.size(), NULL, NULL, NULL, NULL, NULL);
-          // If SQLDescribeCol fails, it might be a statement that doesn't produce a result set.
-          if (!SQL_SUCCEEDED(ret)) {
-              result->Error("QueryError", "The executed statement did not produce a result set. Use execute() for INSERT, UPDATE, DELETE.", nullptr);
-              SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
-              return;
-          }
-          columnNames.push_back(flutter::EncodableValue(WStringToString(col_name_buffer.data())));
-      }
+    if (SQL_SUCCEEDED(ret)) {
+        SQLSMALLINT num_cols;
+        SQLNumResultCols(hStmt, &num_cols);
 
-      flutter::EncodableList rows;
-      SQLLEN row_count = 0;
+        flutter::EncodableList columnNames;
+        std::vector<SQLWCHAR> col_name_buffer(256);
+        std::vector<SQLSMALLINT> col_types(num_cols);
+        
+        for (SQLSMALLINT i = 1; i <= num_cols; ++i) {
+            col_name_buffer.assign(256, 0);
+            SQLSMALLINT col_type;
+            SQLRETURN desc_ret = SQLDescribeCol(hStmt, i, col_name_buffer.data(), (SQLSMALLINT)col_name_buffer.size(), NULL, &col_type, NULL, NULL, NULL);
+            if (!SQL_SUCCEEDED(desc_ret)) {
+                result->Error("QueryError", "SQLDescribeCol failed.", nullptr);
+                SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
+                return;
+            }
+            columnNames.push_back(flutter::EncodableValue(WStringToString(col_name_buffer.data())));
+            col_types[i-1] = col_type;
+        }
 
-      std::vector<SQLSMALLINT> col_types(num_cols + 1);
-      for (SQLSMALLINT i = 1; i <= num_cols; ++i) {
-          SQLColAttribute(hStmt, i, SQL_DESC_TYPE, NULL, 0, NULL, (SQLLEN*)&col_types[i]);
-      }
+        flutter::EncodableList rows;
+        SQLLEN row_count = 0;
 
-      while (SQL_SUCCEEDED(SQLFetch(hStmt))) {
-          row_count++;
-          flutter::EncodableMap row;
-          for (SQLSMALLINT i = 1; i <= num_cols; ++i) {
-              SQLLEN indicator;
-              flutter::EncodableValue value;
+        while (SQL_SUCCEEDED(SQLFetch(hStmt))) {
+            row_count++;
+            flutter::EncodableMap row;
+            for (SQLSMALLINT i = 1; i <= num_cols; ++i) {
+                SQLLEN bytes_read;
+                flutter::EncodableValue value;
 
-              switch (col_types[i]) {
-                  case SQL_BIT: {
-                      char bit_val;
-                      ret = SQLGetData(hStmt, i, SQL_C_BIT, &bit_val, sizeof(bit_val), &indicator);
-                      if (SQL_SUCCEEDED(ret) && indicator != SQL_NULL_DATA) {
-                          value = flutter::EncodableValue(bit_val != 0);
-                      }
-                      break;
-                  }
-                  case SQL_TINYINT:
-                  case SQL_SMALLINT:
-                  case SQL_INTEGER: {
-                      SQLINTEGER int_val;
-                      ret = SQLGetData(hStmt, i, SQL_C_SLONG, &int_val, sizeof(int_val), &indicator);
-                      if (SQL_SUCCEEDED(ret) && indicator != SQL_NULL_DATA) {
-                          value = flutter::EncodableValue(int_val);
-                      }
-                      break;
-                  }
-                  case SQL_BIGINT: {
-                      SQLBIGINT bigint_val;
-                      ret = SQLGetData(hStmt, i, SQL_C_SBIGINT, &bigint_val, sizeof(bigint_val), &indicator);
-                      if (SQL_SUCCEEDED(ret) && indicator != SQL_NULL_DATA) {
-                          value = flutter::EncodableValue(bigint_val);
-                      }
-                      break;
-                  }
-                  case SQL_REAL:
-                  case SQL_FLOAT:
-                  case SQL_DOUBLE:
-                  case SQL_DECIMAL:
-                  case SQL_NUMERIC: {
-                      double double_val;
-                      ret = SQLGetData(hStmt, i, SQL_C_DOUBLE, &double_val, sizeof(double_val), &indicator);
-                      if (SQL_SUCCEEDED(ret) && indicator != SQL_NULL_DATA) {
-                          value = flutter::EncodableValue(double_val);
-                      }
-                      break;
-                  }
-                  case SQL_CHAR:
-                  case SQL_VARCHAR:
-                  case SQL_WVARCHAR:
-                  case SQL_WCHAR:
-                  case SQL_WLONGVARCHAR:
-                  default: {
-                      SQLWCHAR data[4000];
-                      ret = SQLGetData(hStmt, i, SQL_C_WCHAR, data, sizeof(data), &indicator);
-                      if (SQL_SUCCEEDED(ret) && indicator != SQL_NULL_DATA) {
-                          value = flutter::EncodableValue(WStringToString(data));
-                      }
-                      break;
-                  }
-              }
+                // Get column type for proper data handling
+                SQLSMALLINT col_type = col_types[i-1];
+                
+                switch (col_type) {
+                    case SQL_BIT: {
+                        SQLCHAR bit_value;
+                        ret = SQLGetData(hStmt, i, SQL_C_BIT, &bit_value, sizeof(bit_value), &bytes_read);
+                        if (SQL_SUCCEEDED(ret) && bytes_read != SQL_NULL_DATA) {
+                            value = flutter::EncodableValue(static_cast<bool>(bit_value));
+                        }
+                        break;
+                    }
+                    case SQL_INTEGER:
+                    case SQL_SMALLINT:
+                    case SQL_TINYINT: {
+                        SQLINTEGER int_value;
+                        ret = SQLGetData(hStmt, i, SQL_C_SLONG, &int_value, sizeof(int_value), &bytes_read);
+                        if (SQL_SUCCEEDED(ret) && bytes_read != SQL_NULL_DATA) {
+                            value = flutter::EncodableValue(static_cast<int>(int_value));
+                        }
+                        break;
+                    }
+                    case SQL_DECIMAL:
+                    case SQL_NUMERIC:
+                    case SQL_FLOAT:
+                    case SQL_REAL:
+                    case SQL_DOUBLE: {
+                        SQLDOUBLE double_value;
+                        ret = SQLGetData(hStmt, i, SQL_C_DOUBLE, &double_value, sizeof(double_value), &bytes_read);
+                        if (SQL_SUCCEEDED(ret) && bytes_read != SQL_NULL_DATA) {
+                            value = flutter::EncodableValue(double_value);
+                        }
+                        break;
+                    }
+                    default: {
+                        // Handle as string for other types (including VARCHAR, NVARCHAR, etc.)
+                        std::vector<SQLWCHAR> buffer(4000);
+                        std::wstring accumulated_str;
+                        while ((ret = SQLGetData(hStmt, i, SQL_C_WCHAR, buffer.data(), buffer.size() * sizeof(SQLWCHAR), &bytes_read)) != SQL_NO_DATA) {
+                            if (!SQL_SUCCEEDED(ret)) {
+                                break;
+                            }
+                            if (bytes_read == SQL_NULL_DATA) {
+                                accumulated_str.clear();
+                                break;
+                            }
+                            
+                            size_t chars_read = bytes_read / sizeof(SQLWCHAR);
+                            accumulated_str.append(buffer.data(), chars_read);
+                            
+                            if (ret == SQL_SUCCESS) {
+                                break;
+                            }
+                        }
+                        if (bytes_read != SQL_NULL_DATA) {
+                           value = flutter::EncodableValue(WStringToString(accumulated_str));
+                        }
+                        break;
+                    }
+                }
+                
+                row[columnNames[i - 1]] = value;
+            }
+            rows.push_back(flutter::EncodableValue(row));
+        }
 
-              if (indicator == SQL_NULL_DATA) {
-                  row[columnNames[i - 1]] = flutter::EncodableValue();
-              } else {
-                  row[columnNames[i - 1]] = value;
-              }
-          }
-          rows.push_back(flutter::EncodableValue(row));
-      }
+        flutter::EncodableMap response;
+        response[flutter::EncodableValue("rows")] = rows;
+        response[flutter::EncodableValue("rowCount")] = (int)row_count;
+        response[flutter::EncodableValue("columns")] = columnNames;
 
-      flutter::EncodableMap response;
-      response[flutter::EncodableValue("rows")] = rows;
-      response[flutter::EncodableValue("rowCount")] = (int)row_count;
-      response[flutter::EncodableValue("columns")] = columnNames;
+        result->Success(flutter::EncodableValue(response));
+    } else {
+        std::wstringstream wss;
+        SQLSMALLINT i = 1;
+        SQLWCHAR sqlstate[6];
+        SQLINTEGER native_error;
+        SQLWCHAR message_text[SQL_MAX_MESSAGE_LENGTH];
+        SQLSMALLINT text_length;
 
-      result->Success(flutter::EncodableValue(response));
-  } else {
-      std::wstringstream wss;
-      SQLSMALLINT i = 1;
-      SQLWCHAR sqlstate[6];
-      SQLINTEGER native_error;
-      SQLWCHAR message_text[SQL_MAX_MESSAGE_LENGTH];
-      SQLSMALLINT text_length;
+        while (SQLGetDiagRec(SQL_HANDLE_STMT, hStmt, i, sqlstate, &native_error, message_text, SQL_MAX_MESSAGE_LENGTH, &text_length) == SQL_SUCCESS) {
+            wss << L"Message " << i << L": " << message_text << L" (SQLSTATE: " << sqlstate << L", Native error: " << native_error << L")" << std::endl;
+            i++;
+        }
+        std::string error_message = WStringToString(wss.str());
+        if (error_message.empty()) {
+            error_message = "Query execution failed, but no diagnostic message was returned.";
+        }
+        result->Error("QueryError", "Query execution failed", flutter::EncodableValue(error_message));
+    }
 
-      while (SQLGetDiagRec(SQL_HANDLE_STMT, hStmt, i, sqlstate, &native_error, message_text, SQL_MAX_MESSAGE_LENGTH, &text_length) == SQL_SUCCESS) {
-          wss << L"Message " << i << L": " << message_text << L" (SQLSTATE: " << sqlstate << L", Native error: " << native_error << L")" << std::endl;
-          i++;
-      }
-      std::string error_message = WStringToString(wss.str());
-      if (error_message.empty()) {
-         error_message = "Query execution failed, but no diagnostic message was returned.";
-      }
-      result->Error("QueryError", "Query execution failed", flutter::EncodableValue(error_message));
-  }
-
-  SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
+    SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
 }
 
 // Execute method implementation
