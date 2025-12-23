@@ -71,6 +71,21 @@ bool MssqlConnectPlugin::GetBoolFromMap(const flutter::EncodableMap& map, const 
     return default_value;
 }
 
+// Helper function to extract detailed ODBC error information
+std::string MssqlConnectPlugin::GetOdbcErrorDetails(SQLSMALLINT handle_type, SQLHANDLE handle) {
+    SQLWCHAR sqlstate[6];
+    SQLINTEGER native_error;
+    SQLWCHAR message_text[SQL_MAX_MESSAGE_LENGTH];
+    SQLSMALLINT text_length;
+
+    if (SQL_SUCCEEDED(SQLGetDiagRec(handle_type, handle, 1, sqlstate, &native_error, message_text, SQL_MAX_MESSAGE_LENGTH, &text_length))) {
+        // Just get the first message and return it.
+        return WStringToString(message_text);
+    }
+    
+    return ""; // Return empty if nothing found.
+}
+
 // Constructor
 MssqlConnectPlugin::MssqlConnectPlugin() {}
 
@@ -185,18 +200,7 @@ void MssqlConnectPlugin::Connect(
       response[flutter::EncodableValue("success")] = flutter::EncodableValue(true);
       result->Success(flutter::EncodableValue(response));
   } else {
-      std::wstringstream wss;
-      SQLSMALLINT i = 1;
-      SQLWCHAR sqlstate[6];
-      SQLINTEGER native_error;
-      SQLWCHAR message_text[SQL_MAX_MESSAGE_LENGTH];
-      SQLSMALLINT text_length;
-
-      while (SQLGetDiagRec(SQL_HANDLE_DBC, hDbc, i, sqlstate, &native_error, message_text, SQL_MAX_MESSAGE_LENGTH, &text_length) == SQL_SUCCESS) {
-          wss << L"Message " << i << L": " << message_text << L" (SQLSTATE: " << sqlstate << L", Native error: " << native_error << L")" << std::endl;
-          i++;
-      }
-      std::string error_message = WStringToString(wss.str());
+      std::string error_message = GetOdbcErrorDetails(SQL_HANDLE_DBC, hDbc);
       if (error_message.empty()) {
          error_message = "Failed to connect to database, but no diagnostic message was returned.";
       }
@@ -376,18 +380,11 @@ void MssqlConnectPlugin::Query(
 
         result->Success(flutter::EncodableValue(response));
     } else {
-        std::wstringstream wss;
-        SQLSMALLINT i = 1;
-        SQLWCHAR sqlstate[6];
-        SQLINTEGER native_error;
-        SQLWCHAR message_text[SQL_MAX_MESSAGE_LENGTH];
-        SQLSMALLINT text_length;
-
-        while (SQLGetDiagRec(SQL_HANDLE_STMT, hStmt, i, sqlstate, &native_error, message_text, SQL_MAX_MESSAGE_LENGTH, &text_length) == SQL_SUCCESS) {
-            wss << L"Message " << i << L": " << message_text << L" (SQLSTATE: " << sqlstate << L", Native error: " << native_error << L")" << std::endl;
-            i++;
+        std::string error_message = GetOdbcErrorDetails(SQL_HANDLE_STMT, hStmt);
+        if (error_message.empty()) {
+            // Fallback to the connection handle
+            error_message = GetOdbcErrorDetails(SQL_HANDLE_DBC, hDbc);
         }
-        std::string error_message = WStringToString(wss.str());
         if (error_message.empty()) {
             error_message = "Query execution failed, but no diagnostic message was returned.";
         }
@@ -435,34 +432,51 @@ void MssqlConnectPlugin::Execute(
   ret = SQLExecDirect(hStmt, (SQLWCHAR*)wsql.c_str(), SQL_NTS);
 
   if (SQL_SUCCEEDED(ret)) {
-      SQLLEN affected_rows = -1; // Default to -1 (not available)
-      ret = SQLRowCount(hStmt, &affected_rows);
+        // Even with success, there might be warnings or info messages
+        std::string info_message = GetOdbcErrorDetails(SQL_HANDLE_STMT, hStmt);
 
-      if (!SQL_SUCCEEDED(ret)) {
-          // If SQLRowCount fails, we can't be sure of the number of affected rows.
-          // However, the command itself succeeded. We can return 0 or 1 based on the statement type,
-          // but returning the potentially negative value from SQLRowCount is also an option.
-          // For simplicity and to indicate success, we'll return 1 for INSERTs if rowcount is unavailable.
-          if (sql.rfind("INSERT", 0) == 0 || sql.rfind("insert", 0) == 0) {
-              affected_rows = 1; // Assume 1 row for a successful insert if count is not available
-          }
-      }
+        SQLLEN affected_rows = -1;
+        SQLRETURN row_ret = SQLRowCount(hStmt, &affected_rows);
+
+        if (!SQL_SUCCEEDED(row_ret)) {
+             affected_rows = 0;
+        }
+        
+        // If there was info, we should probably return it with the success message
+        if (!info_message.empty()) {
+            // For simplicity, we just return the row count, but ideally, we'd pass the info back.
+            // The current plugin design doesn't support returning both success data and info.
+            // We prioritize returning the row count for now.
+        }
+
       result->Success(flutter::EncodableValue((int)affected_rows));
   } else {
-      std::wstringstream wss;
-      SQLSMALLINT i = 1;
       SQLWCHAR sqlstate[6];
       SQLINTEGER native_error;
       SQLWCHAR message_text[SQL_MAX_MESSAGE_LENGTH];
       SQLSMALLINT text_length;
+      std::wstringstream wss;
 
-      while (SQLGetDiagRec(SQL_HANDLE_STMT, hStmt, i, sqlstate, &native_error, message_text, SQL_MAX_MESSAGE_LENGTH, &text_length) == SQL_SUCCESS) {
-          wss << L"Message " << i << L": " << message_text << L" (SQLSTATE: " << sqlstate << L", Native error: " << native_error << L")" << std::endl;
-          i++;
+      // Try statement handle first
+      SQLRETURN diag_ret = SQLGetDiagRec(SQL_HANDLE_STMT, hStmt, 1, sqlstate, &native_error, message_text, SQL_MAX_MESSAGE_LENGTH, &text_length);
+
+      if (SQL_SUCCEEDED(diag_ret)) {
+          wss << L"[Stmt] " << message_text << L" (SQLSTATE: " << sqlstate << L", Native: " << native_error << L")";
+      } else {
+          // If statement handle fails, try connection handle
+          diag_ret = SQLGetDiagRec(SQL_HANDLE_DBC, hDbc, 1, sqlstate, &native_error, message_text, SQL_MAX_MESSAGE_LENGTH, &text_length);
+          if (SQL_SUCCEEDED(diag_ret)) {
+              wss << L"[Dbc] " << message_text << L" (SQLSTATE: " << sqlstate << L", Native: " << native_error << L")";
+          } else {
+              // If both fail, report the failure code from the first attempt
+              wss << L"Failed to retrieve diagnostics. SQLGetDiagRec returned: " << diag_ret;
+          }
       }
+    
       std::string error_message = WStringToString(wss.str());
+
       if (error_message.empty()) {
-         error_message = "Command execution failed, but no diagnostic message was returned.";
+          error_message = "Command execution failed, and getting diagnostics also failed.";
       }
       result->Error("ExecuteError", "Command execution failed", flutter::EncodableValue(error_message));
   }
@@ -527,18 +541,7 @@ void MssqlConnectPlugin::TestConnection(
       SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
       result->Success(flutter::EncodableValue(true));
   } else {
-      std::wstringstream wss;
-      SQLSMALLINT i = 1;
-      SQLWCHAR sqlstate[6];
-      SQLINTEGER native_error;
-      SQLWCHAR message_text[SQL_MAX_MESSAGE_LENGTH];
-      SQLSMALLINT text_length;
-
-      while (SQLGetDiagRec(SQL_HANDLE_DBC, hDbc, i, sqlstate, &native_error, message_text, SQL_MAX_MESSAGE_LENGTH, &text_length) == SQL_SUCCESS) {
-          wss << L"Message " << i << L": " << message_text << L" (SQLSTATE: " << sqlstate << L", Native error: " << native_error << L")" << std::endl;
-          i++;
-      }
-      std::string error_message = WStringToString(wss.str());
+      std::string error_message = GetOdbcErrorDetails(SQL_HANDLE_DBC, hDbc);
       if (error_message.empty()) {
          error_message = "Connection test failed, but no diagnostic message was returned.";
       }

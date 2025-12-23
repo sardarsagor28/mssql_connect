@@ -37,6 +37,7 @@ class MssqlConnectPlugin : public flutter::Plugin {
   // Connection management
   static std::wstring StringToWString(const std::string& str);
   static std::string WStringToString(const std::wstring& wstr);
+  std::string GetOdbcErrorDetails(SQLSMALLINT handle_type, SQLHANDLE handle);
 
   // Method implementations
   void Connect(const flutter::MethodCall<flutter::EncodableValue>& method_call,

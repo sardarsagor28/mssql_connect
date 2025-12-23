@@ -37,8 +37,22 @@ class MssqlConnectPlugin : FlutterPlugin, MethodCallHandler {
                         val database = args["database"] as String
                         val username = args["username"] as String
                         val password = args["password"] as String
-                        val connectionUrl = "jdbc:sqlserver://$server;databaseName=$database;user=$username;password=$password;encrypt=true;trustServerCertificate=true;"
-                        Class.forName("com.microsoft.sqlserver.jdbc.SQLServerDriver")
+                        val encrypt = args["encrypt"] as? Boolean ?: true
+                        val sslMode = if (encrypt) "require" else "off"
+                        var host = server
+                        var instanceName = ""
+                        if (server.contains("\\")) {
+                            val parts = server.split("\\", limit = 2)
+                            host = parts[0]
+                            instanceName = parts[1]
+                        }
+                        
+                        var connectionUrl = "jdbc:jtds:sqlserver://$host/$database;user=$username;password=$password;ssl=$sslMode;"
+                        if (instanceName.isNotEmpty()) {
+                            connectionUrl += "instance=$instanceName;"
+                        }
+                        
+                        Class.forName("net.sourceforge.jtds.jdbc.Driver")
                         val connection = DriverManager.getConnection(connectionUrl)
                         val connectionId = nextConnectionId++
                         connections[connectionId] = connection
@@ -125,8 +139,22 @@ class MssqlConnectPlugin : FlutterPlugin, MethodCallHandler {
                         val database = args["database"] as String
                         val username = args["username"] as String
                         val password = args["password"] as String
-                        val connectionUrl = "jdbc:sqlserver://$server;databaseName=$database;user=$username;password=$password;encrypt=true;trustServerCertificate=true;"
-                        Class.forName("com.microsoft.sqlserver.jdbc.SQLServerDriver")
+                        val encrypt = args["encrypt"] as? Boolean ?: true
+                        val sslMode = if (encrypt) "require" else "off"
+                        var host = server
+                        var instanceName = ""
+                        if (server.contains("\\")) {
+                            val parts = server.split("\\", limit = 2)
+                            host = parts[0]
+                            instanceName = parts[1]
+                        }
+
+                        var connectionUrl = "jdbc:jtds:sqlserver://$host/$database;user=$username;password=$password;ssl=$sslMode;"
+                        if (instanceName.isNotEmpty()) {
+                            connectionUrl += "instance=$instanceName;"
+                        }
+
+                        Class.forName("net.sourceforge.jtds.jdbc.Driver")
                         val connection = DriverManager.getConnection(connectionUrl)
                         connection.close()
                         result.success(true)

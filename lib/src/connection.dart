@@ -14,6 +14,7 @@ class MsSqlConnection {
   final String? password;
   final int port;
   final bool trustedConnection;
+  final bool encrypt;
 
   bool _isConnected = false;
   int? _connectionId;
@@ -25,6 +26,7 @@ class MsSqlConnection {
     this.password,
     this.port = 1433,
     this.trustedConnection = false,
+    this.encrypt = true,
   });
 
   /// Connect to the database
@@ -41,6 +43,7 @@ class MsSqlConnection {
         'password': password ?? '',
         'port': port,
         'trustedConnection': trustedConnection,
+        'encrypt': encrypt,
       });
 
       if (result is Map) {
@@ -75,7 +78,10 @@ class MsSqlConnection {
 
       throw QueryException('Invalid query result format');
     } on PlatformException catch (e) {
-      throw QueryException('Query execution failed', details: e.details as String?);
+      throw QueryException(
+        'Query execution failed',
+        details: e.details as String?,
+      );
     }
   }
 
@@ -92,7 +98,10 @@ class MsSqlConnection {
 
       return result as int? ?? 0;
     } on PlatformException catch (e) {
-      throw QueryException('Execute command failed', details: e.details as String?);
+      throw QueryException(
+        'Execute command failed',
+        details: e.details as String?,
+      );
     }
   }
 
@@ -136,7 +145,10 @@ class MsSqlConnection {
       _isConnected = false;
       _connectionId = null;
     } on PlatformException catch (e) {
-      throw ConnectionException('Failed to disconnect', details: e.details as String?);
+      throw ConnectionException(
+        'Failed to disconnect',
+        details: e.details as String?,
+      );
     }
   }
 
@@ -150,6 +162,7 @@ class MsSqlConnection {
         'password': password ?? '',
         'port': port,
         'trustedConnection': trustedConnection,
+        'encrypt': encrypt,
       });
 
       return result == true;

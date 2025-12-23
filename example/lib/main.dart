@@ -28,10 +28,8 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  final _serverController = TextEditingController(
-    text: '192.168.1.18\\SQL2014',
-  );
-  final _databaseController = TextEditingController(text: 'tPOS_BOSTON_BITES');
+  final _serverController = TextEditingController(text: '192.168.0.182\\SQL19');
+  final _databaseController = TextEditingController(text: 'TPOS_TEST');
   final _usernameController = TextEditingController(text: 'sa');
   final _passwordController = TextEditingController(text: 'data');
   final _queryController = TextEditingController(
@@ -94,6 +92,7 @@ class _HomePageState extends State<HomePage> {
         username: _usernameController.text,
         password: _passwordController.text,
         trustedConnection: false,
+        encrypt: false,
       );
 
       final success = await connection.testConnection();
@@ -152,6 +151,7 @@ class _HomePageState extends State<HomePage> {
         username: _usernameController.text,
         password: _passwordController.text,
         trustedConnection: false,
+        encrypt: false,
       );
 
       final success = await _connection!.connect();
