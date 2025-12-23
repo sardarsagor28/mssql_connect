@@ -98,9 +98,24 @@ class MssqlConnectPlugin : FlutterPlugin, MethodCallHandler {
                             while (resultSet.next()) {
                                 val row = mutableMapOf<String, Any?>()
                                 for (i in 1..columnCount) {
-                                    row[columnNames[i - 1]] = resultSet.getObject(i)
+                                val value = resultSet.getObject(i)
+                                val convertedValue = when (value) {
+                                    null -> null
+                                    is Boolean -> value
+                                    is Int -> value
+                                    is Long -> value
+                                    is Double -> value
+                                    is String -> value
+                                    is ByteArray -> value
+                                    is Float -> value.toDouble()
+                                    is Short -> value.toInt()
+                                    is Byte -> value.toInt()
+                                    is java.math.BigDecimal -> value.toDouble()
+                                    else -> value.toString()
                                 }
-                                rows.add(row)
+                                row[columnNames[i - 1]] = convertedValue
+                            }
+                            rows.add(row)
                             }
                             val response = mapOf("rows" to rows, "rowCount" to rows.size, "columns" to columnNames)
                             result.success(response)
