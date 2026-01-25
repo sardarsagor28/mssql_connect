@@ -1,7 +1,9 @@
 name: mssql_connect
-description: "A new Flutter project."
+description: A Flutter plugin for Microsoft SQL Server (MSSQL) connectivity. Supports executing queries and managing connections across multiple platforms.
 version: 0.0.1
-homepage:
+homepage: https://github.com/sardarsagor28/mssql_connect
+repository: https://github.com/sardarsagor28/mssql_connect
+issue_tracker: https://github.com/sardarsagor28/mssql_connect/issues
 
 environment:
   sdk: ^3.9.0
@@ -37,15 +39,6 @@ flutter:
       android:
         package: com.example.mssql_connect
         pluginClass: MssqlConnectPlugin
-      ios:
-        pluginClass: MssqlConnectPlugin
-      linux:
-        pluginClass: MssqlConnectPlugin
-      macos:
-        pluginClass: MssqlConnectPlugin
-      web:
-        pluginClass: MssqlConnectWeb
-        fileName: mssql_connect_web.dart
       windows:
         pluginClass: MssqlConnectPluginCApi
 

@@ -16,12 +16,10 @@ class DatabaseException implements Exception {
 
 /// Exception for connection errors
 class ConnectionException extends DatabaseException {
-  ConnectionException(String message, {String? details})
-    : super(message, details: details);
+  ConnectionException(super.message, {super.details});
 }
 
 /// Exception for query errors
 class QueryException extends DatabaseException {
-  QueryException(String message, {String? details})
-    : super(message, details: details);
+  QueryException(super.message, {super.details});
 }
