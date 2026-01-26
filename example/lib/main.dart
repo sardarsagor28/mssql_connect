@@ -1,4 +1,5 @@
 import 'dart:developer';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:mssql_connect/mssql_connect.dart'; //
@@ -33,7 +34,7 @@ class _HomePageState extends State<HomePage> {
   final _usernameController = TextEditingController(text: 'sa');
   final _passwordController = TextEditingController(text: 'data');
   final _queryController = TextEditingController(
-    text: 'SELECT * FROM TableInfo',
+    text: 'SELECT TOP 1 * FROM CompanyProfile',
   );
 
   MsSqlConnection? _connection;
@@ -580,8 +581,108 @@ class _HomePageState extends State<HomePage> {
                           rows: _queryResults.map((row) {
                             return DataRow(
                               cells: _columnNames.map((col) {
+                                final cellValue = row[col];
+
+                                // Handle binary data (images, etc.)
+                                if (cellValue is Uint8List) {
+                                  return DataCell(
+                                    Row(
+                                      children: [
+                                        // Try to display as image
+                                        if (cellValue.isNotEmpty)
+                                          GestureDetector(
+                                            onTap: () {
+                                              // Show full image in dialog
+                                              showDialog(
+                                                context: context,
+                                                builder: (context) => Dialog(
+                                                  child: Column(
+                                                    mainAxisSize:
+                                                        MainAxisSize.min,
+                                                    children: [
+                                                      AppBar(
+                                                        title: Text(
+                                                          'Image: $col',
+                                                        ),
+                                                        automaticallyImplyLeading:
+                                                            false,
+                                                        actions: [
+                                                          IconButton(
+                                                            icon: const Icon(
+                                                              Icons.close,
+                                                            ),
+                                                            onPressed: () =>
+                                                                Navigator.pop(
+                                                                  context,
+                                                                ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                      Flexible(
+                                                        child: SingleChildScrollView(
+                                                          child: Padding(
+                                                            padding:
+                                                                const EdgeInsets.all(
+                                                                  16.0,
+                                                                ),
+                                                            child: Image.memory(
+                                                              cellValue,
+                                                              errorBuilder:
+                                                                  (
+                                                                    context,
+                                                                    error,
+                                                                    stackTrace,
+                                                                  ) {
+                                                                    return Text(
+                                                                      'Not a valid image\n${cellValue.length} bytes',
+                                                                    );
+                                                                  },
+                                                            ),
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              );
+                                            },
+                                            child: Container(
+                                              width: 50,
+                                              height: 50,
+                                              decoration: BoxDecoration(
+                                                border: Border.all(
+                                                  color: Colors.grey,
+                                                ),
+                                              ),
+                                              child: Image.memory(
+                                                cellValue,
+                                                fit: BoxFit.cover,
+                                                errorBuilder:
+                                                    (
+                                                      context,
+                                                      error,
+                                                      stackTrace,
+                                                    ) {
+                                                      return const Icon(
+                                                        Icons.broken_image,
+                                                      );
+                                                    },
+                                              ),
+                                            ),
+                                          ),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          '${(cellValue.length / 1024).toStringAsFixed(1)} KB',
+                                          style: const TextStyle(fontSize: 12),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                }
+
+                                // Handle regular data
                                 return DataCell(
-                                  Text(row[col]?.toString() ?? 'NULL'),
+                                  Text(cellValue?.toString() ?? 'NULL'),
                                 );
                               }).toList(),
                             );

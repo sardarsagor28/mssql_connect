@@ -341,6 +341,36 @@ void MssqlConnectPlugin::Query(
                         }
                         break;
                     }
+                    case SQL_BINARY:
+                    case SQL_VARBINARY:
+                    case SQL_LONGVARBINARY: {
+                        // Handle binary data types (image, varbinary, binary)
+                        std::vector<uint8_t> binary_data;
+                        std::vector<uint8_t> buffer(8192); // 8KB chunks
+                        
+                        while ((ret = SQLGetData(hStmt, i, SQL_C_BINARY, buffer.data(), buffer.size(), &bytes_read)) != SQL_NO_DATA) {
+                            if (!SQL_SUCCEEDED(ret)) {
+                                break;
+                            }
+                            if (bytes_read == SQL_NULL_DATA) {
+                                binary_data.clear();
+                                break;
+                            }
+                            
+                            // Append the chunk to binary_data
+                            size_t bytes_to_append = (ret == SQL_SUCCESS_WITH_INFO) ? buffer.size() : bytes_read;
+                            binary_data.insert(binary_data.end(), buffer.begin(), buffer.begin() + bytes_to_append);
+                            
+                            if (ret == SQL_SUCCESS) {
+                                break;
+                            }
+                        }
+                        
+                        if (bytes_read != SQL_NULL_DATA && !binary_data.empty()) {
+                            value = flutter::EncodableValue(binary_data);
+                        }
+                        break;
+                    }
                     default: {
                         // Handle as string for other types (including VARCHAR, NVARCHAR, etc.)
                         std::vector<SQLWCHAR> buffer(4000);
