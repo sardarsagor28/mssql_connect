@@ -186,6 +186,198 @@ class MsSqlConnection {
     }
   }
 
+  // ========== Change Tracking Methods ==========
+
+  /// Get current change tracking version for the database
+  /// Returns null if change tracking is not enabled
+  ///
+  /// Example:
+  /// ```dart
+  /// final version = await connection.getChangeTrackingVersion();
+  /// if (version != null) {
+  ///   print('Current version: $version');
+  /// }
+  /// ```
+  Future<int?> getChangeTrackingVersion() async {
+    _ensureConnected();
+
+    try {
+      final result = await query(
+        'SELECT CHANGE_TRACKING_CURRENT_VERSION() as CurrentVersion',
+      );
+
+      if (result.rows.isEmpty) {
+        return null;
+      }
+
+      final version = result.rows.first['CurrentVersion'];
+
+      // Handle different return types (int, String, null)
+      if (version == null) {
+        return null;
+      } else if (version is int) {
+        return version;
+      } else if (version is String) {
+        return int.tryParse(version);
+      }
+
+      return null;
+    } catch (e) {
+      // Change tracking not enabled or error
+      return null;
+    }
+  }
+
+  /// Check if a specific table has changes since last version
+  /// Returns true if changes detected, false otherwise
+  ///
+  /// Parameters:
+  /// - [tableName]: Name of the table to check
+  /// - [lastVersion]: Last known change tracking version
+  ///
+  /// Example:
+  /// ```dart
+  /// final hasChanges = await connection.hasTableChanges(
+  ///   tableName: 'Orders',
+  ///   lastVersion: 100,
+  /// );
+  /// if (hasChanges) {
+  ///   // Fetch updated data
+  /// }
+  /// ```
+  Future<bool> hasTableChanges({
+    required String tableName,
+    required int lastVersion,
+  }) async {
+    _ensureConnected();
+
+    try {
+      // Use parameterized query to prevent SQL injection
+      final result = await query(
+        'SELECT COUNT(*) as ChangeCount FROM CHANGETABLE(CHANGES $tableName, @lastVersion) AS CT',
+        [lastVersion],
+      );
+
+      if (result.rows.isEmpty) {
+        return false;
+      }
+
+      final count = result.rows.first['ChangeCount'];
+
+      // Handle different return types
+      if (count is int) {
+        return count > 0;
+      } else if (count is String) {
+        return (int.tryParse(count) ?? 0) > 0;
+      }
+
+      return false;
+    } catch (e) {
+      // Table doesn't have change tracking or error
+      return false;
+    }
+  }
+
+  /// Get minimum valid change tracking version for a table
+  /// Useful to check if your stored version is still valid
+  /// Returns null if change tracking is not enabled on the table
+  ///
+  /// Example:
+  /// ```dart
+  /// final minVersion = await connection.getMinValidVersion(
+  ///   tableName: 'Orders',
+  /// );
+  /// if (minVersion != null && lastStoredVersion < minVersion) {
+  ///   // Stored version is too old, need full refresh
+  /// }
+  /// ```
+  Future<int?> getMinValidVersion({required String tableName}) async {
+    _ensureConnected();
+
+    try {
+      final result = await query(
+        'SELECT CHANGE_TRACKING_MIN_VALID_VERSION(OBJECT_ID(@tableName)) as MinVersion',
+        [tableName],
+      );
+
+      if (result.rows.isEmpty) {
+        return null;
+      }
+
+      final version = result.rows.first['MinVersion'];
+
+      if (version == null) {
+        return null;
+      } else if (version is int) {
+        return version;
+      } else if (version is String) {
+        return int.tryParse(version);
+      }
+
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// Get detailed change information for a table
+  /// Returns a list of changes with operation type and primary key
+  ///
+  /// Parameters:
+  /// - [tableName]: Name of the table to check
+  /// - [lastVersion]: Last known change tracking version
+  /// - [primaryKeyColumn]: Name of the primary key column (default: 'Id')
+  ///
+  /// Returns a list of maps containing:
+  /// - Primary key value
+  /// - Operation type: 'I' (Insert), 'U' (Update), 'D' (Delete)
+  /// - Change version
+  ///
+  /// Example:
+  /// ```dart
+  /// final changes = await connection.getTableChanges(
+  ///   tableName: 'Orders',
+  ///   lastVersion: 100,
+  ///   primaryKeyColumn: 'OrderNo',
+  /// );
+  /// for (var change in changes) {
+  ///   print('${change['operation']}: ${change['primaryKey']}');
+  /// }
+  /// ```
+  Future<List<Map<String, dynamic>>> getTableChanges({
+    required String tableName,
+    required int lastVersion,
+    String primaryKeyColumn = 'Id',
+  }) async {
+    _ensureConnected();
+
+    try {
+      final result = await query(
+        '''
+        SELECT 
+          CT.$primaryKeyColumn as PrimaryKey,
+          CT.SYS_CHANGE_OPERATION as Operation,
+          CT.SYS_CHANGE_VERSION as ChangeVersion
+        FROM CHANGETABLE(CHANGES $tableName, @lastVersion) AS CT
+        ORDER BY CT.SYS_CHANGE_VERSION
+        ''',
+        [lastVersion],
+      );
+
+      return result.rows.map((row) {
+        return {
+          'primaryKey': row['PrimaryKey'],
+          'operation': row['Operation'], // 'I', 'U', or 'D'
+          'changeVersion': row['ChangeVersion'],
+        };
+      }).toList();
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // ========== End Change Tracking Methods ==========
+
   /// Close connection on dispose
   Future<void> dispose() async {
     if (_isConnected) {
