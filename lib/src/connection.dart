@@ -252,10 +252,14 @@ class MsSqlConnection {
     _ensureConnected();
 
     try {
-      // Use parameterized query to prevent SQL injection
+      // Direct injection for lastVersion as it is an integer (safe)
+      // Using parameterized query for table name is not supported in T-SQL for CHANGETABLE
+      // But table name comes from our internal logic usually.
+      // NOTE: CHANGETABLE requires the table name to be a literal or valid identifier, not a string parameter.
+      // So we must inject table name directly.
+
       final result = await query(
-        'SELECT COUNT(*) as ChangeCount FROM CHANGETABLE(CHANGES $tableName, @lastVersion) AS CT',
-        [lastVersion],
+        'SELECT COUNT(*) as ChangeCount FROM CHANGETABLE(CHANGES $tableName, $lastVersion) AS CT',
       );
 
       if (result.rows.isEmpty) {
@@ -295,9 +299,9 @@ class MsSqlConnection {
     _ensureConnected();
 
     try {
+      // Using string injection for table name object_id check
       final result = await query(
-        'SELECT CHANGE_TRACKING_MIN_VALID_VERSION(OBJECT_ID(@tableName)) as MinVersion',
-        [tableName],
+        "SELECT CHANGE_TRACKING_MIN_VALID_VERSION(OBJECT_ID('$tableName')) as MinVersion",
       );
 
       if (result.rows.isEmpty) {
@@ -352,17 +356,14 @@ class MsSqlConnection {
     _ensureConnected();
 
     try {
-      final result = await query(
-        '''
+      final result = await query('''
         SELECT 
           CT.$primaryKeyColumn as PrimaryKey,
           CT.SYS_CHANGE_OPERATION as Operation,
           CT.SYS_CHANGE_VERSION as ChangeVersion
-        FROM CHANGETABLE(CHANGES $tableName, @lastVersion) AS CT
+        FROM CHANGETABLE(CHANGES $tableName, $lastVersion) AS CT
         ORDER BY CT.SYS_CHANGE_VERSION
-        ''',
-        [lastVersion],
-      );
+        ''');
 
       return result.rows.map((row) {
         return {
