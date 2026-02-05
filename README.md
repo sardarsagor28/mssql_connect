@@ -6,7 +6,7 @@ A Flutter plugin for Microsoft SQL Server (MSSQL) connectivity. This plugin allo
 
 - Connect to Microsoft SQL Server.
 - Execute SQL queries (SELECT, INSERT, UPDATE, DELETE).
-- Support for multiple platforms (Android, iOS, Windows, macOS, Linux, Web).
+- Support for multiple platforms (Android, Windows).
 - Easy to use API.
 
 ## Installation
@@ -45,6 +45,35 @@ void main() async {
   if (connected) {
     var results = await connection.executeQuery("SELECT * FROM Users");
     print(results);
+  }
+}
+```
+
+### Change Tracking (MSSQL)
+
+Efficiently track data changes using SQL Server's Change Tracking feature.
+
+```dart
+// 1. Get current version
+final currentVersion = await connection.getChangeTrackingVersion();
+
+// 2. Check for changes in a specific table
+final hasChanges = await connection.hasTableChanges(
+  tableName: 'Products',
+  lastVersion: lastSyncVersion,
+);
+
+if (hasChanges) {
+  // 3. Get detailed changes (Operation type and Primary Key)
+  final changes = await connection.getTableChanges(
+    tableName: 'Products',
+    lastVersion: lastSyncVersion,
+    primaryKeyColumn: 'ProductId',
+  );
+
+  for (var change in changes) {
+    print('Type: ${change['operation']}'); // I, U, or D
+    print('ID: ${change['primaryKey']}');
   }
 }
 ```

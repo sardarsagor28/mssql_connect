@@ -1,13 +1,16 @@
 ## 0.0.3
 
-* Added SQL Server Change Tracking support
-* New methods: `getChangeTrackingVersion()`, `hasTableChanges()`, `getMinValidVersion()`, `getTableChanges()`
-* Enables real-time data synchronization across multiple clients
-* Improved performance for multi-counter POS systems
+* Added SQL Server Change Tracking support.
+* New methods in `MsSqlConnection`:
+    * `getChangeTrackingVersion()`: Get current database sync version.
+    * `hasTableChanges()`: Quickly check if a table has any changes.
+    * `getMinValidVersion()`: Verify if last sync version is still valid.
+    * `getTableChanges()`: Get detailed list of modified primary keys and operations (Insert, Update, Delete).
+* Improved performance for multi-counter POS systems and real-time data synchronization.
 
 ## 0.0.2
 
-* Fix: Image bug fix
+* Fix: Image bug fix.
 
 ## 0.0.1
 
