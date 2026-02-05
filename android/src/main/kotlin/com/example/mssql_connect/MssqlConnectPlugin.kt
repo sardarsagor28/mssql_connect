@@ -89,51 +89,53 @@ class MssqlConnectPlugin : FlutterPlugin, MethodCallHandler {
                         val sql = args["sql"] as String
                         val connection = connections[connectionId]
                         if (connection != null) {
-                            val statement = connection.createStatement()
-                            val resultSet = statement.executeQuery(sql)
-                            val metaData = resultSet.metaData
-                            val columnCount = metaData.columnCount
-                            val columnNames = (1..columnCount).map { metaData.getColumnName(it) }
-                            val rows = mutableListOf<Map<String, Any?>>()
-                            while (resultSet.next()) {
-                                val row = mutableMapOf<String, Any?>()
-                                for (i in 1..columnCount) {
-                                    // Check column type to handle binary data properly
-                                    val columnType = metaData.getColumnType(i)
-                                    val value = when (columnType) {
-                                        java.sql.Types.BINARY,
-                                        java.sql.Types.VARBINARY,
-                                        java.sql.Types.LONGVARBINARY,
-                                        java.sql.Types.BLOB -> {
-                                            // Explicitly use getBytes() for binary types
-                                            resultSet.getBytes(i)
+                            connection.createStatement().use { statement ->
+                                statement.executeQuery(sql).use { resultSet ->
+                                    val metaData = resultSet.metaData
+                                    val columnCount = metaData.columnCount
+                                    val columnNames = (1..columnCount).map { metaData.getColumnName(it) }
+                                    val rows = mutableListOf<Map<String, Any?>>()
+                                    while (resultSet.next()) {
+                                        val row = mutableMapOf<String, Any?>()
+                                        for (i in 1..columnCount) {
+                                            // Check column type to handle binary data properly
+                                            val columnType = metaData.getColumnType(i)
+                                            val value = when (columnType) {
+                                                java.sql.Types.BINARY,
+                                                java.sql.Types.VARBINARY,
+                                                java.sql.Types.LONGVARBINARY,
+                                                java.sql.Types.BLOB -> {
+                                                    // Explicitly use getBytes() for binary types
+                                                    resultSet.getBytes(i)
+                                                }
+                                                else -> {
+                                                    // Use getObject() for other types
+                                                    resultSet.getObject(i)
+                                                }
+                                            }
+                                            
+                                            val convertedValue = when (value) {
+                                                null -> null
+                                                is Boolean -> value
+                                                is Int -> value
+                                                is Long -> value
+                                                is Double -> value
+                                                is String -> value
+                                                is ByteArray -> value
+                                                is Float -> value.toDouble()
+                                                is Short -> value.toInt()
+                                                is Byte -> value.toInt()
+                                                is java.math.BigDecimal -> value.toDouble()
+                                                else -> value.toString()
+                                            }
+                                            row[columnNames[i - 1]] = convertedValue
                                         }
-                                        else -> {
-                                            // Use getObject() for other types
-                                            resultSet.getObject(i)
-                                        }
+                                        rows.add(row)
                                     }
-                                    
-                                    val convertedValue = when (value) {
-                                        null -> null
-                                        is Boolean -> value
-                                        is Int -> value
-                                        is Long -> value
-                                        is Double -> value
-                                        is String -> value
-                                        is ByteArray -> value
-                                        is Float -> value.toDouble()
-                                        is Short -> value.toInt()
-                                        is Byte -> value.toInt()
-                                        is java.math.BigDecimal -> value.toDouble()
-                                        else -> value.toString()
-                                    }
-                                    row[columnNames[i - 1]] = convertedValue
+                                    val response = mapOf("rows" to rows, "rowCount" to rows.size, "columns" to columnNames)
+                                    result.success(response)
                                 }
-                                rows.add(row)
                             }
-                            val response = mapOf("rows" to rows, "rowCount" to rows.size, "columns" to columnNames)
-                            result.success(response)
                         } else {
                             result.error("InvalidConnection", "Invalid connection ID", null)
                         }
@@ -150,9 +152,10 @@ class MssqlConnectPlugin : FlutterPlugin, MethodCallHandler {
                         val sql = args["sql"] as String
                         val connection = connections[connectionId]
                         if (connection != null) {
-                            val statement = connection.createStatement()
-                            val affectedRows = statement.executeUpdate(sql)
-                            result.success(affectedRows)
+                            connection.createStatement().use { statement ->
+                                val affectedRows = statement.executeUpdate(sql)
+                                result.success(affectedRows)
+                            }
                         } else {
                             result.error("InvalidConnection", "Invalid connection ID", null)
                         }

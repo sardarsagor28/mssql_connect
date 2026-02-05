@@ -31,8 +31,13 @@ class MsSqlConnection {
 
   /// Connect to the database
   Future<bool> connect() async {
+    // If already connected, try to disconnect first to clean up resources
     if (_isConnected) {
-      throw ConnectionException('Already connected to database');
+      try {
+        await disconnect();
+      } catch (e) {
+        // Ignore disconnect errors during re-connect
+      }
     }
 
     try {
